@@ -45,3 +45,13 @@ Static. Open `index.html`, or serve the folder.
 
 For GitHub Pages, serve from the repo root. `.nojekyll` is present so the
 assets folder is published as-is.
+
+## A note on the images
+
+`index.html` is fully self-contained — the shop photo and the three stickers
+are embedded in the file. Open it anywhere, on its own, with no server and no
+assets folder, and it renders complete.
+
+The same images are also kept as real files in `assets/` so they can be
+swapped, re-cropped or reused. If you move to separate files later, point
+`HERO_SHOT` and `STICKERS` in `index.html` at those paths instead.
