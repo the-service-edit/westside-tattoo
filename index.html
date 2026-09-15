@@ -9,7 +9,7 @@
 <title>Westside Tattoo Mermaid Beach</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800;900&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800;900&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap">
 
 <style>
 :root{
@@ -518,6 +518,25 @@ body{padding-bottom:0}
 html{-webkit-text-size-adjust:100%}
 img{max-width:100%;height:auto;display:block}
 [hidden]{display:none!important}
+/* ---- functional fixes (QA pass) ---- */
+.bk.bn{font-weight:700;letter-spacing:.14em}
+.snav .bk.bn{font-size:12px}
+.snav .links a.bk,.snav .links a.bk:hover{color:#000}
+a.face,a.lbl,a.logofall,a.back{text-decoration:none}
+label.lbl{display:block}
+.bk[aria-disabled=true]{opacity:.35;cursor:not-allowed}
+.apick button[disabled]{opacity:.45;cursor:not-allowed}
+.vh{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.vh:focus-visible+.drop{outline:2px solid var(--wht);outline-offset:2px}
+.drop.over{border-color:var(--wht);background:var(--blk3)}
+.ferr{font-family:var(--m);font-size:11px;letter-spacing:.06em;line-height:1.5;color:#E0584D;margin:10px 0 0}
+input[aria-invalid=true]{border-color:#E0584D}
+.fstep input,.fstep textarea{scroll-margin-top:90px}
+h1[tabindex="-1"]:focus{outline:none}
+@supports (-webkit-touch-callout:none){.sel{font-size:16px}}
+.revr dd,.quote,.msg,.ticketrow dd,.facts dd{overflow-wrap:anywhere;min-width:0}
+.fnav .back,.fnav .skip{padding-block:12px}
+.revr .ed{padding-block:8px;margin-block:-8px}
 </style>
 </head>
 <body>
@@ -813,10 +832,37 @@ var SEED = function(){ return {
       slot:"Tue 30 Sep, 1:00pm", waited:2, thread:[] }
   ]
 }};
+/* State lives in memory and is mirrored to sessionStorage so a refresh
+   mid-booking keeps the answers. WHERE you are comes from the URL, never
+   from storage — that's what makes Back/Forward and refresh behave. */
+var STORE_KEY = "ws-site-v2";
 var S = JSON.parse(JSON.stringify(SEED()));
-try{ var saved = sessionStorage.getItem("ws-site"); if(saved) S = JSON.parse(saved); }catch(e){}
-if(!S.view || S.view==="site") S.view="site2";
-function save(){ try{ sessionStorage.setItem("ws-site", JSON.stringify(S)); }catch(e){} }
+try{
+  sessionStorage.removeItem("ws-site");            /* old format restored the last screen */
+  var saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || "null");
+  if(saved && typeof saved === "object"){
+    var base = SEED();
+    S = Object.assign(base, saved);
+    S.draft = Object.assign(SEED().draft, saved.draft || {});
+    if(!Array.isArray(S.reqs)) S.reqs = base.reqs;
+  }
+}catch(e){}
+S.view = S.view || "site2";
+function stripImages(o){
+  return JSON.parse(JSON.stringify(o, function(k,v){
+    return (typeof v === "string" && v.indexOf("data:image") === 0) ? undefined : v; }));
+}
+function save(){
+  try{ sessionStorage.setItem(STORE_KEY, JSON.stringify(S)); }
+  catch(e){
+    /* storage full (big photos) — keep the text answers at least */
+    try{ sessionStorage.setItem(STORE_KEY, JSON.stringify(stripImages(S))); }catch(e2){}
+  }
+}
+var saveTimer = null;
+function saveSoon(){ clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
+/* transient UI state — never persisted */
+var UI = { showErr:false, upErr:null, busy:null, sending:false, lastNav:0, handoffClosed:null };
 
 var STATUS = {
   "new":        {t:"New",             cls:"w"},
@@ -828,7 +874,9 @@ var STATUS = {
   "passed":     {t:"Passed on",       cls:""}
 };
 
-function go(v){ S.view=v; save(); render(); window.scrollTo(0,0); }
+/* go(view) is kept so every existing onclick still works — it now routes
+   through the URL (see ROUTER) instead of swapping screens silently. */
+function go(v){ navTo(hashFor(v)); }
 function reqById(id){ return S.reqs.filter(function(r){return r.id===id})[0]; }
 function mine(){ return S.reqs.filter(function(r){return r.artist===S.me}); }
 function count(st){ return mine().filter(function(r){return r.status===st}).length; }
@@ -851,9 +899,9 @@ function vSite(){
 
   var faqs = [
     ["How do I get booked in?",
-     "<p>Come in and talk to us, ring the shop, or fill in the form on here. Whichever suits. The form takes a few minutes and means we've got your references and the size and spot already, so we're not going back and forth about it.</p><p>Once it's in, one of us has a look and gets back to you. If it's not right for the artist you've picked, we'll say so and put it in front of someone here who it does suit.</p>"],
-    ["Is the form a booking?",
-     "<p>No. It's a request. Nothing's locked in until the artist has looked at it, told you how long they reckon it'll take, offered you some dates and you've left the booking fee.</p>"],
+     "<p>Come in and talk to us, ring the shop, or hit Book now on here. Whichever suits. The form takes a few minutes and means we've got your references and the size and spot already, so we're not going back and forth about it.</p><p>Once it's in, one of us has a look and gets back to you. If it's not right for the artist you've picked, we'll say so and put it in front of someone here who it does suit.</p>"],
+    ["Does Book now lock in a date?",
+     "<p>Not straight away. Nothing's locked in until the artist has looked at it, told you how long they reckon it'll take, offered you some dates and you've left the booking fee.</p>"],
     ["What's the minimum price for a tattoo?",
      "<p>The studio minimum is $150.</p>"],
     ["How do you price tattoos?",
@@ -883,15 +931,15 @@ function vSite(){
   }).join("");
 
   return '<nav class="snav"><div class="snav-in">'+
-      '<a href="#" onclick="go(\'site\');return false" style="text-decoration:none;display:flex;align-items:center">'+
+      '<a href="#/" style="text-decoration:none;display:flex;align-items:center">'+
         '<img class="logo" src="'+LOGO+'" alt="Westside Tattoo Mermaid Beach" '+
         'onerror="this.outerHTML=\'<span class=&quot;logofall&quot;>Westside</span>\'">'+
       '</a>'+
       '<div class="links">'+
-        '<a href="#artists" class="hs">Tattooists</a>'+
-        '<a href="#faq" class="hs">FAQ</a>'+
-        '<a href="#find" class="hs">Find us</a>'+
-        '<a href="#" class="bk" onclick="go(\'book\');return false">Start a request</a>'+
+        '<a href="#/artists" class="hs">Tattooists</a>'+
+        '<a href="#/faq" class="hs">FAQ</a>'+
+        '<a href="#/find" class="hs">Find us</a>'+
+        '<a href="#/book" class="bk bn">Book now</a>'+
       '</div></div></nav>'+
 
     '<header class="hero"><div class="wrap">'+
@@ -908,7 +956,7 @@ function vSite(){
       '<div class="sech"><div>'+
         '<h2>Getting tattooed here</h2>'+
         '<p>Come in and talk to us, ring the shop, or send it through on here. The form takes a few minutes and saves a fortnight of messages.</p>'+
-      '</div><a href="#" class="bk" onclick="go(\'book\');return false">Start a request</a></div>'+
+      '</div><a href="#/book" class="bk bn">Book now</a></div>'+
       '<div class="rows">'+
         '<dl class="row"><dt>What happens</dt><dd>You tell us the idea, where it\'s going and roughly how big. One of us has a look, works out how long it needs, and offers you some times out of their own book.</dd></dl>'+
         '<dl class="row"><dt>How long we take</dt><dd>' + nc("Usually a couple of days.", "the studio needs to agree a response time it can actually hold") + '</dd></dl>'+
@@ -946,27 +994,27 @@ function vSite(){
         '<dl class="row"><dt>Phone</dt><dd><a href="tel:0756795898">(07) 5679 5898</a></dd></dl>'+
         '<dl class="row"><dt>Email</dt><dd><a href="mailto:westsidetattoomermaidbeach@gmail.com">westsidetattoomermaidbeach@gmail.com</a></dd></dl>'+
       '</div>'+
-      '<div class="mt2"><a href="#" class="bk" onclick="go(\'book\');return false">Start a request</a></div>'+
+      '<div class="mt2"><a href="#/book" class="bk bn">Book now</a></div>'+
     '</div></section>';
 }
 var NAV_MARKUP = '<nav class="snav"><div class="snav-in">'+
-      '<a href="#" onclick="go(\'site\');return false" style="text-decoration:none;display:flex;align-items:center">'+
+      '<a href="#/" style="text-decoration:none;display:flex;align-items:center">'+
         '<img class="logo" src="'+LOGO+'" alt="Westside Tattoo Mermaid Beach" '+
         'onerror="this.outerHTML=\'<span class=&quot;logofall&quot;>Westside</span>\'">'+
       '</a>'+
       '<div class="links">'+
-        '<a href="#artists" class="hs">Tattooists</a>'+
-        '<a href="#faq" class="hs">FAQ</a>'+
-        '<a href="#find" class="hs">Find us</a>'+
-        '<a href="#" class="bk" onclick="go(\'book\');return false">Start a request</a>'+
+        '<a href="#/artists" class="hs">Tattooists</a>'+
+        '<a href="#/faq" class="hs">FAQ</a>'+
+        '<a href="#/find" class="hs">Find us</a>'+
+        '<a href="#/book" class="bk bn">Book now</a>'+
       '</div></div></nav>';
 /* shared page sections — a function, so `faqs` is scoped where it's built */
 function siteRest(){
   var faqs = [
     ["How do I get booked in?",
-     "<p>Come in and talk to us, ring the shop, or fill in the form on here. Whichever suits. The form takes a few minutes and means we've got your references and the size and spot already, so we're not going back and forth about it.</p><p>Once it's in, one of us has a look and gets back to you. If it's not right for the artist you've picked, we'll say so and put it in front of someone here who it does suit.</p>"],
-    ["Is the form a booking?",
-     "<p>No. It's a request. Nothing's locked in until the artist has looked at it, told you how long they reckon it'll take, offered you some dates and you've left the booking fee.</p>"],
+     "<p>Come in and talk to us, ring the shop, or hit Book now on here. Whichever suits. The form takes a few minutes and means we've got your references and the size and spot already, so we're not going back and forth about it.</p><p>Once it's in, one of us has a look and gets back to you. If it's not right for the artist you've picked, we'll say so and put it in front of someone here who it does suit.</p>"],
+    ["Does Book now lock in a date?",
+     "<p>Not straight away. Nothing's locked in until the artist has looked at it, told you how long they reckon it'll take, offered you some dates and you've left the booking fee.</p>"],
     ["What's the minimum price for a tattoo?",
      "<p>The studio minimum is $150.</p>"],
     ["How do you price tattoos?",
@@ -1003,7 +1051,7 @@ function siteRest(){
       '<div class="sech"><div>'+
         '<h2>Getting tattooed here</h2>'+
         '<p>Come in and talk to us, ring the shop, or send it through on here. The form takes a few minutes and saves a fortnight of messages.</p>'+
-      '</div><a href="#" class="bk" onclick="go(\'book\');return false">Start a request</a></div>'+
+      '</div><a href="#/book" class="bk bn">Book now</a></div>'+
       '<div class="rows">'+
         '<dl class="row"><dt>What happens</dt><dd>You tell us the idea, where it\'s going and roughly how big. One of us has a look, works out how long it needs, and offers you some times out of their own book.</dd></dl>'+
         '<dl class="row"><dt>How long we take</dt><dd>' + nc("Usually a couple of days.", "the studio needs to agree a response time it can actually hold") + '</dd></dl>'+
@@ -1033,7 +1081,7 @@ function siteRest(){
         '<dl class="row"><dt>Phone</dt><dd><a href="tel:0756795898">(07) 5679 5898</a></dd></dl>'+
         '<dl class="row"><dt>Email</dt><dd><a href="mailto:westsidetattoomermaidbeach@gmail.com">westsidetattoomermaidbeach@gmail.com</a></dd></dl>'+
       '</div>'+
-      '<div class="mt2"><a href="#" class="bk" onclick="go(\'book\');return false">Start a request</a></div>'+
+      '<div class="mt2"><a href="#/book" class="bk bn">Book now</a></div>'+
     '</div></section>');
 }
 
@@ -1047,12 +1095,12 @@ function vSite2(){
   var strip = IG_ORDER.map(function(id){
     var a=artist(id); if(!a) return "";
     var d=a.ig_data||{};
-    return '<button class="face" onclick="openArtistPage(\''+a.id+'\')" aria-label="'+esc(a.name)+'">'+
+    return '<a class="face" href="#/artist/'+a.id+'">'+
       pic(a.pic, a.name+" — portrait")+
       '<span class="fn">'+esc(a.name.split(" ")[0])+'<b>'+esc(a.name.split(" ").slice(1).join(" "))+'</b></span>'+
       '<span class="ff">'+esc(d.f||"")+'</span>'+
       (d.closed?'<span class="fx">Books closed</span>':'')+
-    '</button>';
+    '</a>';
   }).join("");
 
   return NAV_MARKUP +
@@ -1064,18 +1112,17 @@ function vSite2(){
         '<img class="hero2-logo" src="'+LOGO+'" alt="Westside Tattoo Mermaid Beach" '+
           'onerror="this.outerHTML=\'<span class=&quot;hero2-fall&quot;>Westside<em>Mermaid Beach</em></span>\'">'+
         '<p class="hero2-sub">All styles for all people · Since 1998</p>'+
-        '<button class="bk hero2-cta" onclick="go(\'book\')">Start a request</button>'+
+        '<a class="bk bn hero2-cta" href="#/book">Book now</a>'+
         '<p class="hero2-note">Tuesday to Saturday, 10 til 5 · Walk-ins welcome if we\'ve got room</p>'+
       '</div>'+
     '</div>'+
-    '<div class="faces">'+
+    '<div class="faces" id="artists">'+
       '<p class="faces-lbl">Have a look at who\'s here</p>'+
       '<div class="faces-row">'+strip+'</div>'+
     '</div>'+
   '</header>'+
 
-  siteRest() +
-  '<div id="drawer" class="drawer" hidden></div><div id="scrim" class="scrim" hidden onclick="closeArtist()"></div>';
+  siteRest();
 }
 
 window.openArtist=function(id){
@@ -1103,7 +1150,7 @@ window.openArtist=function(id){
     '<div class="dact">'+
       (d.closed
         ? '<button class="bk gh" onclick="closeArtist()">Have a look at someone else</button>'
-        : '<button class="bk" onclick="closeArtist();startWith(\''+a.id+'\')">Request a tattoo with '+esc(a.name.split(" ")[0])+'</button>')+
+        : '<button class="bk" onclick="closeArtist();startWith(\''+a.id+'\')">Book now with '+esc(a.name.split(" ")[0])+'</button>')+
       (a.id==="zarra" ? '<button class="bk gh" onclick="closeArtist();go(\'artist\')">Open her full page</button>' : '')+
       '<a class="bk gh" href="https://www.instagram.com/'+esc(a.ig)+'/" target="_blank" rel="noopener">See the lot on Instagram</a>'+
     '</div>'+
@@ -1112,22 +1159,36 @@ window.openArtist=function(id){
   document.body.style.overflow="hidden";
 };
 
-window.zoomWork=function(i){
+/* Overlays (work lightbox) get their own history entry, so the phone's
+   Back gesture closes the picture instead of leaving the site. */
+var OV = { open:null, ret:null };
+window.zoomWork=function(i, fromPop){
   var w=ZARRA.work[i]; if(!w) return;
   var d=document.getElementById("drawer"), sc=document.getElementById("scrim");
   if(!d||!sc) return;
+  if(!fromPop) OV.ret=document.activeElement;
   d.className="lightbox";
+  d.setAttribute("aria-label", w.t+" — "+w.p);
   d.innerHTML='<button class="dclose" onclick="closeArtist()">Close ✕</button>'+
-    '<img class="lbimg" src="assets/artists/zarra/'+w.f+'.jpg" alt="'+esc(w.t)+'">'+
+    '<img class="lbimg" src="assets/artists/zarra/'+w.f+'.jpg" alt="'+esc(w.t)+' — '+esc(w.p)+'">'+
     '<p class="lbcap"><b>'+esc(w.t)+'</b> · '+esc(w.p)+' · '+esc(w.c)+'</p>'+
     '<p class="lbby">Zarra Ryan · @zarra.ryan</p>';
   d.hidden=false; sc.hidden=false; document.body.style.overflow="hidden";
+  OV.open="lb";
+  if(!fromPop) pushOverlay({ov:"lb", i:i});
+  var c=d.querySelector(".dclose"); if(c) c.focus({preventScroll:true});
 };
-
-window.closeArtist=function(){
-  var d=document.getElementById("drawer"); if(d){ d.hidden=true; d.className="drawer"; }
+function hideOverlay(){
+  var d=document.getElementById("drawer"); if(d){ d.hidden=true; d.className="drawer"; d.innerHTML=""; }
   var s=document.getElementById("scrim"); if(s) s.hidden=true;
   document.body.style.overflow="";
+  OV.open=null;
+  var r=OV.ret; OV.ret=null;
+  if(r && document.contains(r)) try{ r.focus({preventScroll:true}); }catch(e){}
+}
+window.closeArtist=function(){
+  if(history.state && history.state.ov){ history.back(); return; }   /* popstate hides it */
+  hideOverlay();
 };
 
 
@@ -1170,11 +1231,11 @@ function vArtistPage(){
     }).join("") : "";
 
   var others = ARTISTS.filter(function(x){ return x.id !== id; }).map(function(x){
-      return '<button class="face" onclick="openArtistPage(\'' + x.id + '\')">'+
+      return '<a class="face" href="#/artist/' + x.id + '">'+
         pic(x.pic, x.name+" — portrait")+
         '<span class="fn">'+esc(x.name.split(" ")[0])+'<b>'+esc(x.name.split(" ").slice(1).join(" "))+'</b></span>'+
         ((x.ig_data||{}).closed ? '<span class="fx">Books closed</span>' : '')+
-      '</button>';
+      '</a>';
     }).join("");
 
   var strip;
@@ -1182,7 +1243,7 @@ function vArtistPage(){
     strip = '<div class="apg-open"><span class="od-dot"></span>'+
       '<span class="od-t">'+esc(z.status)+'</span>'+
       '<span class="od-s">'+esc(z.statusSrc)+'</span>'+
-      '<button class="bk" onclick="startWith(\'' + id + '\')">Send '+esc(first)+' an idea</button></div>';
+      '<a class="bk bn" href="#/book?artist=' + id + '">Book now</a></div>';
   } else if (d.closed) {
     strip = '<div class="apg-open closed"><span class="od-dot"></span>'+
       '<span class="od-t">Not taking bookings at the moment</span>'+
@@ -1191,7 +1252,7 @@ function vArtistPage(){
     strip = '<div class="apg-open"><span class="od-dot"></span>'+
       '<span class="od-t">'+nc("Ask about availability","current booking status for "+a.name)+'</span>'+
       '<span style="flex:1"></span>'+
-      '<button class="bk" onclick="startWith(\'' + id + '\')">Send '+esc(first)+' an idea</button></div>';
+      '<a class="bk bn" href="#/book?artist=' + id + '">Book now</a></div>';
   }
 
   var side = wants
@@ -1246,7 +1307,7 @@ function vArtistPage(){
         '<h2>Want to book something in with '+esc(first)+'?</h2>'+
         '<p>Tell us the idea, where it is going and roughly how big. '+esc(first)+
         ' will come back with how long it needs and a few times to pick from.</p>'+
-        '<button class="bk" onclick="startWith(\'' + id + '\')">Start a request with '+esc(first)+'</button>'+
+        '<a class="bk bn" href="#/book?artist=' + id + '">Book now</a>'+
       '</div>'+
 
       '<div class="hr"></div>'+
@@ -1255,7 +1316,7 @@ function vArtistPage(){
     '</div>'+
   '</div>';
 }
-window.openArtistPage = function(id){ S.artistId = id; save(); go("artist"); window.scrollTo(0,0); };
+window.openArtistPage = function(id){ navTo("#/artist/"+id); };
 
 window.tgl = function(btn){
   var open = btn.getAttribute("aria-expanded")==="true";
@@ -1263,7 +1324,7 @@ window.tgl = function(btn){
   btn.querySelector(".pm").textContent = open ? "+" : "–";
   btn.nextElementSibling.hidden = open;
 };
-window.startWith = function(id){ S.draft.route="known"; S.draft.artist=id; S.step=2; go("book"); };
+window.startWith = function(id){ navTo("#/book?artist="+encodeURIComponent(id)); };
 </script>
 
 <script>
@@ -1291,6 +1352,65 @@ var STEPS = [
 
 function stepTitle(k){ return k; }
 
+/* ---------- step rules -------------------------------------------------
+   One place decides whether a step is answered. Used by Next, by direct
+   URLs (can't land on step 9 with step 3 empty) and by the final send. */
+var MAX_REFS = 10, MAX_MB = 25;
+function isClosed(a){ return !!(a && a.ig_data && a.ig_data.closed); }
+function hasAnswers(){ return !!S.draft.route; }
+function cleanPhone(p){
+  var s = String(p||"").replace(/[\s\-().]/g,"");
+  if(/^\+61\d{9}$/.test(s)) s = "0"+s.slice(3);
+  else if(/^61\d{9}$/.test(s)) s = "0"+s.slice(2);
+  return s;
+}
+function phoneOk(p, mobileOnly){
+  var s = cleanPhone(p);
+  if(/^\+\d{7,15}$/.test(s)) return true;                 /* overseas visitors */
+  return mobileOnly ? /^04\d{8}$/.test(s) : /^0[2-478]\d{8}$/.test(s);
+}
+function emailOk(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(e||"").trim()); }
+function youErrors(){
+  var d=S.draft, e={}, ph=(d.phone||"").trim(), em=(d.email||"").trim();
+  if((d.name||"").trim().length<2) e.name="Put your name in.";
+  if(ph && !phoneOk(ph,false)) e.phone="That number doesn't look right. Australian numbers are 10 digits, like 0412 345 678.";
+  else if(ph && d.contact==="Text" && !phoneOk(ph,true)) e.phone="Texts need a mobile number — one starting with 04.";
+  if(em && !emailOk(em)) e.email="That email doesn't look right.";
+  if(!d.contact) e.contact="Pick how you'd like us to get hold of you.";
+  else if((d.contact==="Text"||d.contact==="Call") && !ph && !e.phone) e.phone="We need a number to "+(d.contact==="Text"?"text":"call")+" you on.";
+  else if(d.contact==="Email" && !em && !e.email) e.email="We need an email address to email you.";
+  return e;
+}
+function stepOk(k){
+  var d=S.draft;
+  switch(k){
+    case "route":  return !!d.route;
+    case "artist": return d.route==="any" || (d.route==="help" ? d.styles.length>0
+                          : (d.route==="known" && !!artist(d.artist) && !isClosed(artist(d.artist))));
+    case "job":    return !!d.job;
+    case "place":  return !!d.place;
+    case "size":   return !!d.size;
+    case "colour": return !!d.colour;
+    case "budget": return !!d.budget;
+    case "when":   return d.days.length>0;
+    case "you":    return Object.keys(youErrors()).length===0;
+    default:       return true;
+  }
+}
+function stepWhy(k){
+  return ({
+    route:"Pick one of these to keep going.",
+    artist: S.draft.route==="help" ? "Pick at least one — “Not sure” is fine." : "Pick a tattooist to keep going.",
+    job:"Pick what we're doing.", place:"Pick where it's going.", size:"Pick a rough size.",
+    colour:"Pick one — “Not sure” is fine.", budget:"Pick a range — “No idea” is fine.",
+    when:"Pick at least one day.", you:"A couple of details still need fixing — see above."
+  })[k] || "";
+}
+function firstGap(){
+  for(var i=0;i<STEPS.length-1;i++) if(!stepOk(STEPS[i])) return i;
+  return STEPS.length-1;
+}
+
 function vBook(){
   var k = STEPS[S.step] || "route";
   var pct = Math.round((S.step/(STEPS.length-1))*100);
@@ -1300,28 +1420,56 @@ function vBook(){
   })[k]();
 
   return '<div class="flow"><div class="fbar"><div class="fbar-in">'+
-      '<button class="lbl" onclick="go(\'site\')">Westside</button>'+
-      '<div class="prog"><i style="width:'+pct+'%"></i></div>'+
+      '<a class="lbl" href="#/">Westside</a>'+
+      '<div class="prog" role="progressbar" aria-label="Booking progress" aria-valuemin="1" aria-valuemax="'+STEPS.length+'" aria-valuenow="'+(S.step+1)+'"><i style="width:'+pct+'%"></i></div>'+
       '<span class="lbl">'+(S.step+1)+' / '+STEPS.length+'</span>'+
     '</div></div><div class="fstep">'+body+'</div></div>';
 }
 function head(q, help){
-  return '<h1 class="fq">'+esc(q)+'</h1>'+(help?'<p class="fhelp">'+help+'</p>':'');
+  return '<h1 class="fq" id="stepq" tabindex="-1">'+esc(q)+'</h1>'+(help?'<p class="fhelp">'+help+'</p>':'');
 }
 function nav(nextLabel, canNext, skip){
+  var k = STEPS[S.step];
+  /* the "who" answer and the artist pick go together, so route always continues to it */
+  var toReview = S.editFrom==="review" && k!=="route" && canNext && firstGap()===STEPS.length-1;
+  var label = toReview ? "Back to review" : nextLabel;
+  var showWhy = UI.showErr && !canNext && k!=="you";
   return '<div class="fnav">'+
-    (S.step>0?'<button class="back" onclick="stepBack()">Back</button>':'')+
+    (S.step>0?'<button type="button" class="back" onclick="stepBack()">Back</button>':'')+
     '<span class="sp"></span>'+
-    (skip?'<button class="skip" onclick="stepNext()">'+esc(skip)+'</button>':'')+
-    (nextLabel?'<button class="bk" onclick="stepNext()" '+(canNext?'':'disabled style="opacity:.35;cursor:not-allowed"')+'>'+esc(nextLabel)+'</button>':'')+
-  '</div>';
+    (skip && !toReview?'<button type="button" class="skip" onclick="stepNext()">'+esc(skip)+'</button>':'')+
+    (label?'<button type="button" class="bk" onclick="stepNext()"'+(canNext?'':' aria-disabled="true" aria-describedby="steperr"')+'>'+esc(label)+'</button>':'')+
+  '</div>'+
+  '<p class="ferr" id="steperr" role="status" aria-live="polite">'+(showWhy?esc(stepWhy(k)):'')+'</p>';
 }
-window.stepNext = function(){ if(S.step<STEPS.length-1){S.step++;save();render();window.scrollTo(0,0);} };
-window.stepBack = function(){ if(S.step>0){S.step--;save();render();window.scrollTo(0,0);} };
-window.jumpTo = function(k){ S.step = STEPS.indexOf(k); save(); render(); window.scrollTo(0,0); };
-window.setD = function(f,v){ S.draft[f]=v; save(); render(); };
+function tooSoon(){ return Date.now()-UI.lastNav < 400; }   /* swallows double-clicks */
+window.stepNext = function(){
+  if(tooSoon()) return;
+  var k = STEPS[S.step];
+  if(!stepOk(k)){
+    UI.showErr = true; render();
+    var bad = document.querySelector('.fstep [aria-invalid="true"]');
+    if(bad) bad.focus();
+    return;
+  }
+  UI.showErr = false;
+  if(S.editFrom==="review" && k!=="route" && firstGap()===STEPS.length-1){ S.editFrom=null; save(); return backTo("#/book/review"); }
+  if(S.step < STEPS.length-1) navTo("#/book/"+STEPS[S.step+1]);
+};
+window.stepBack = function(){
+  if(tooSoon()) return;
+  if(S.step>0) backTo("#/book/"+STEPS[S.step-1]);
+};
+window.jumpTo = function(k){ S.editFrom="review"; save(); navTo("#/book/"+k); };
+window.setD = function(f,v){
+  var d=S.draft; d[f]=v;
+  if(f==="place" && SIDED.indexOf(v)<0) d.side=null;     /* "Chest · Left" can't happen */
+  if(f==="artist"){ UI.handoffClosed=null; if(!artist(v)||isClosed(artist(v))) d.artist=null; }
+  UI.showErr=false; save(); render();
+};
 window.toggleD = function(f,v){
-  var a=S.draft[f]; var i=a.indexOf(v); if(i<0)a.push(v); else a.splice(i,1); save(); render();
+  var a=S.draft[f]; var i=a.indexOf(v); if(i<0)a.push(v); else a.splice(i,1);
+  UI.showErr=false; save(); render();
 };
 
 function sRoute(){
@@ -1329,8 +1477,8 @@ function sRoute(){
             ["help","Not sure who suits it","Tell us the idea and we'll put it in front of whoever it's right for."],
             ["any","Whoever can get me in soonest","You're not fussy about who does it."]];
   return head("Who's doing it?")+
-  '<div class="opts">'+opts.map(function(o){
-    return '<button class="opt" aria-pressed="'+(S.draft.route===o[0])+'" onclick="setD(\'route\',\''+o[0]+'\')">'+
+  '<div class="opts" role="group" aria-labelledby="stepq">'+opts.map(function(o){
+    return '<button type="button" class="opt" aria-pressed="'+(S.draft.route===o[0])+'" onclick="setD(\'route\',\''+o[0]+'\')">'+
       '<span><span class="ot">'+esc(o[1])+'</span><span class="od">'+esc(o[2])+'</span></span></button>';
   }).join("")+'</div>'+nav("Next", !!S.draft.route);
 }
@@ -1342,27 +1490,31 @@ function sArtist(){
   }
   if(S.draft.route==="help"){
     return head("What sort of thing is it?","Pick what\'s closest. It only decides who we show it to first.")+
-      '<div class="ogrid">'+STYLES.map(function(s){
-        return '<button class="ocell" aria-pressed="'+(S.draft.styles.indexOf(s)>=0)+'" onclick="toggleD(\'styles\',\''+esc(s)+'\')">'+
+      '<div class="ogrid" role="group" aria-labelledby="stepq">'+STYLES.map(function(s){
+        return '<button type="button" class="ocell" aria-pressed="'+(S.draft.styles.indexOf(s)>=0)+'" onclick="toggleD(\'styles\',\''+esc(s)+'\')">'+
           '<span class="ot">'+esc(s)+'</span></button>';
       }).join("")+'</div>'+
       (S.draft.styles.length ? '<div class="note mt">'+esc(suggestLine())+'</div>' : '')+
       nav("Next", S.draft.styles.length>0);
   }
-  return head("Pick your tattooist.")+
-    '<div class="apick">'+ARTISTS.map(function(a){
-      return '<button aria-pressed="'+(S.draft.artist===a.id)+'" onclick="setD(\'artist\',\''+a.id+'\')">'+
+  var picked = artist(S.draft.artist);
+  var closedNote = UI.handoffClosed && artist(UI.handoffClosed)
+    ? '<div class="note" role="status"><b>'+esc(artist(UI.handoffClosed).name)+' isn\'t taking bookings at the moment.</b> Pick someone else, or go back and let us work out who suits it.</div>' : '';
+  return head("Pick your tattooist.")+closedNote+
+    '<div class="apick" role="group" aria-labelledby="stepq">'+ARTISTS.map(function(a){
+      var shut = isClosed(a);
+      return '<button type="button" aria-pressed="'+(S.draft.artist===a.id)+'"'+(shut?' disabled':'')+' onclick="setD(\'artist\',\''+a.id+'\')">'+
         pic(a.pic, a.name+" — portrait")+
-        '<span class="pn">'+esc(a.name)+'</span><span class="ps">'+esc(a.does)+'</span></button>';
+        '<span class="pn">'+esc(a.name)+'</span><span class="ps">'+(shut?'Not taking bookings at the moment':esc(a.does))+'</span></button>';
     }).join("")+'</div>'+
-    (S.draft.artist ? '<div class="note mt"><b>'+esc(artist(S.draft.artist).name)+'.</b> '+
-      esc(artist(S.draft.artist).does)+' '+(artist(S.draft.artist).years?esc(artist(S.draft.artist).years)+' in.':'')+
-      ' If it turns out this isn\'t his sort of thing we\'ll tell you and put it in front of someone here who it is.</div>' : '')+
-    nav("Next", !!S.draft.artist);
+    (picked ? '<div class="note mt"><b>'+esc(picked.name)+'.</b> '+
+      esc(picked.does)+' '+(picked.years?esc(picked.years)+' in.':'')+
+      ' If it turns out this isn\'t '+esc(picked.name.split(" ")[0])+'\'s sort of thing we\'ll tell you and put it in front of someone here who it suits.</div>' : '')+
+    nav("Next", stepOk("artist"));
 }
 function suggestLine(){
   var s=S.draft.styles;
-  var hit=ARTISTS.filter(function(a){return a.tags.some(function(t){return s.indexOf(t)>=0});});
+  var hit=ARTISTS.filter(function(a){return !isClosed(a) && a.tags.some(function(t){return s.indexOf(t)>=0});});
   if(!hit.length) return "We'll work out who's best for it once we read the rest.";
   var names=hit.slice(0,3).map(function(a){return a.name.split(" ")[0]});
   return "That's " + (names.length>1 ? names.slice(0,-1).join(", ")+" or "+names.slice(-1) : names[0]) +
@@ -1370,90 +1522,138 @@ function suggestLine(){
 }
 
 function sJob(){
-  return head("What are we doing?")+
-  '<div class="opts">'+JOBS.map(function(j){
-    return '<button class="opt" aria-pressed="'+(S.draft.job===j[0])+'" onclick="setD(\'job\',\''+esc(j[0])+'\')">'+
+  var a = S.draft.route==="known" ? artist(S.draft.artist) : null;
+  return (a ? '<p class="lbl" style="margin-bottom:12px">Booking with '+esc(a.name)+' · <button type="button" class="skip" style="font-size:inherit" onclick="jumpArtist()">Change</button></p>' : '')+
+  head("What are we doing?")+
+  '<div class="opts" role="group" aria-labelledby="stepq">'+JOBS.map(function(j){
+    return '<button type="button" class="opt" aria-pressed="'+(S.draft.job===j[0])+'" onclick="setD(\'job\',\''+esc(j[0])+'\')">'+
       '<span><span class="ot">'+esc(j[0])+'</span>'+(j[1]?'<span class="od">'+esc(j[1])+'</span>':'')+'</span></button>';
   }).join("")+'</div>'+
   (S.draft.job==="Cover-up"?'<div class="note mt">Cover-ups nearly always need you to come in so we can look at what\'s there. Send it through anyway and we\'ll sort a time.</div>':'')+
   nav("Next", !!S.draft.job);
 }
+window.jumpArtist = function(){ backTo("#/book/artist"); };
 
 function sIdea(){
   return head("What's the idea?","As much or as little as you like. We draw it up ourselves off what you tell us, so don\'t worry about getting it perfect.")+
-  '<textarea id="ideabox" rows="7" placeholder="Peonies down the outside of my thigh, soft shading, nothing too dark..." oninput="S.draft.idea=this.value">'+esc(S.draft.idea)+'</textarea>'+
+  '<textarea id="ideabox" rows="7" aria-labelledby="stepq" placeholder="Peonies down the outside of my thigh, soft shading, nothing too dark..." oninput="S.draft.idea=this.value;saveSoon()">'+esc(S.draft.idea)+'</textarea>'+
   nav("Next", true);
 }
 
+function upErr(){ return UI.upErr ? '<p class="ferr" role="alert">'+esc(UI.upErr)+'</p>' : ''; }
 function sRefs(){
+  var n = S.draft.refs.length, busy = UI.busy==="refs";
   var t = S.draft.refs.map(function(r,i){
-    return '<div class="thumb"><img src="'+r+'" alt=""><button class="x" onclick="rmRef('+i+')">✕</button></div>';
+    return '<div class="thumb"><img src="'+r+'" alt="Reference '+(i+1)+'"><button type="button" class="x" aria-label="Remove reference '+(i+1)+'" onclick="rmRef('+i+')">✕</button></div>';
   }).join("");
   return head("Got references? Send them through.","Anything you\'ve saved. We use them as a starting point and draw you something off the back of it — it won\'t come out as a copy. That\'s a good thing by the way.")+
-  '<label class="drop" for="reffile">Pick images off your phone<br><span class="lbl" style="display:block;margin-top:7px">or drag them in</span></label>'+
-  '<input type="file" id="reffile" accept="image/*" multiple hidden onchange="addRefs(this)">'+
+  (n<MAX_REFS
+    ? '<input type="file" id="reffile" class="vh" accept="image/*" multiple onchange="addRefs(this)">'+
+      '<label class="drop" for="reffile" data-drop="refs" aria-busy="'+busy+'">'+(busy?'Adding them…':'Pick images off your phone')+
+      '<br><span class="lbl" style="display:block;margin-top:7px">or drag them in · up to '+MAX_REFS+'</span></label>'
+    : '<div class="note">That\'s '+MAX_REFS+' — plenty to go on. Remove one to swap it.</div>')+
+  upErr()+
   (t?'<div class="thumbs">'+t+'</div>':'')+
-  nav("Next", true, S.draft.refs.length?null:"Haven't got any");
+  nav("Next", true, n?null:"Haven't got any");
 }
-window.addRefs = function(inp){
-  var fs=[].slice.call(inp.files||[]);
-  var left=fs.length; if(!left) return;
-  fs.forEach(function(f){
-    var fr=new FileReader();
-    fr.onload=function(e){ S.draft.refs.push(e.target.result); if(!--left){save();render();} };
-    fr.readAsDataURL(f);
+function readImage(f){
+  return new Promise(function(res, rej){
+    var looksImg = /^image\//.test(f.type||"") || /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp)$/i.test(f.name||"");
+    if(!looksImg) return rej("type");
+    if(f.size > MAX_MB*1024*1024) return rej("size");
+    var url = URL.createObjectURL(f), img = new Image();
+    img.onload = function(){
+      try{
+        var max=1600, w=img.naturalWidth, h=img.naturalHeight, k=Math.min(1, max/Math.max(w,h));
+        var c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w*k)); c.height=Math.max(1,Math.round(h*k));
+        var x=c.getContext("2d"); x.fillStyle="#fff"; x.fillRect(0,0,c.width,c.height);
+        x.drawImage(img,0,0,c.width,c.height);
+        URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg",0.82));
+      }catch(e){ URL.revokeObjectURL(url); rej("read"); }
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); rej("read"); };
+    img.src = url;
+  });
+}
+function fileErr(f, why){
+  var n = f.name || "That file";
+  return why==="size" ? n+" is over "+MAX_MB+"MB — send a smaller copy."
+       : why==="type" ? n+" isn't a photo. Send a JPG or PNG."
+       : "Couldn't open "+n+". Try a JPG or PNG.";
+}
+function takeFiles(src){
+  var fs = [].slice.call((src && src.files) || src || []);
+  if(src && src.tagName==="INPUT") try{ src.value=""; }catch(e){}
+  return fs;
+}
+window.addRefs = function(src){
+  var fs = takeFiles(src); if(!fs.length) return;
+  var room = MAX_REFS - S.draft.refs.length, errs = [];
+  if(fs.length > room){ errs.push("Only "+MAX_REFS+" images per booking — the first "+Math.max(room,0)+" went in."); fs = fs.slice(0, Math.max(room,0)); }
+  UI.busy="refs"; UI.upErr=null; render();
+  Promise.all(fs.map(function(f){
+    return readImage(f).then(function(d){ return d; }, function(why){ errs.push(fileErr(f,why)); return null; });
+  })).then(function(list){
+    list.forEach(function(d){ if(d && S.draft.refs.length<MAX_REFS) S.draft.refs.push(d); });
+    UI.busy=null; UI.upErr=errs.length?errs.join(" "):null; save();
+    if(S.view==="book") render();
   });
 };
-window.rmRef = function(i){ S.draft.refs.splice(i,1); save(); render(); };
+window.rmRef = function(i){ S.draft.refs.splice(i,1); UI.upErr=null; save(); render(); };
 
 function sSpot(){
+  var busy = UI.busy==="spot";
   return head("Chuck in a photo of the spot.","Just the bit of you it's going on. It tells us how much room there actually is, what shape it needs to be, and whether there's anything already there we need to work around. Saves you a trip in.")+
-  (S.draft.spot?'<div class="thumbs" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"><div class="thumb" style="aspect-ratio:3/4"><img src="'+S.draft.spot+'" alt=""><button class="x" onclick="S.draft.spot=null;save();render()">✕</button></div></div>'
-    :'<label class="drop" for="spotfile">Take one now or pick one</label>'+
-     '<input type="file" id="spotfile" accept="image/*" hidden onchange="addSpot(this)">')+
-  '<div class="note mt">Only we see it. It goes on the request and nowhere else.</div>'+
+  (S.draft.spot?'<div class="thumbs" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"><div class="thumb" style="aspect-ratio:3/4"><img src="'+S.draft.spot+'" alt="Photo of the spot"><button type="button" class="x" aria-label="Remove photo of the spot" onclick="rmSpot()">✕</button></div></div>'
+    :'<input type="file" id="spotfile" class="vh" accept="image/*" onchange="addSpot(this)">'+
+     '<label class="drop" for="spotfile" data-drop="spot" aria-busy="'+busy+'">'+(busy?'Adding it…':'Take one now or pick one')+'</label>')+
+  upErr()+
+  '<div class="note mt">Only we see it. It goes with your booking and nowhere else.</div>'+
   nav("Next", true, S.draft.spot?null:"Skip it");
 }
-window.addSpot = function(inp){
-  var f=(inp.files||[])[0]; if(!f) return;
-  var fr=new FileReader(); fr.onload=function(e){S.draft.spot=e.target.result;save();render();};
-  fr.readAsDataURL(f);
+window.addSpot = function(src){
+  var f = takeFiles(src)[0]; if(!f) return;
+  UI.busy="spot"; UI.upErr=null; render();
+  readImage(f).then(function(d){ S.draft.spot=d; UI.upErr=null; },
+                    function(why){ UI.upErr=fileErr(f,why); })
+    .then(function(){ UI.busy=null; save(); if(S.view==="book") render(); });
 };
+window.rmSpot = function(){ S.draft.spot=null; UI.upErr=null; save(); render(); };
 
 function sPlace(){
   var sided = S.draft.place && SIDED.indexOf(S.draft.place)>=0;
   return head("Where's it going?")+
-  '<div class="ogrid">'+PLACES.map(function(p){
-    return '<button class="ocell" aria-pressed="'+(S.draft.place===p)+'" onclick="setD(\'place\',\''+esc(p)+'\')">'+
+  '<div class="ogrid" role="group" aria-labelledby="stepq">'+PLACES.map(function(p){
+    return '<button type="button" class="ocell" aria-pressed="'+(S.draft.place===p)+'" onclick="setD(\'place\',\''+esc(p)+'\')">'+
       '<span class="ot">'+esc(p)+'</span></button>';
   }).join("")+'</div>'+
-  (sided?'<div class="mt"><p class="lbl" style="margin-bottom:8px">Which side?</p><div class="ogrid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">'+
+  (sided?'<div class="mt"><p class="lbl" id="sidelbl" style="margin-bottom:8px">Which side?</p><div class="ogrid" role="group" aria-labelledby="sidelbl" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">'+
     ["Left","Right","Both","Not fussed"].map(function(x){
-      return '<button class="ocell" aria-pressed="'+(S.draft.side===x)+'" onclick="setD(\'side\',\''+x+'\')"><span class="ot">'+x+'</span></button>';
+      return '<button type="button" class="ocell" aria-pressed="'+(S.draft.side===x)+'" onclick="setD(\'side\',\''+x+'\')"><span class="ot">'+x+'</span></button>';
     }).join("")+'</div></div>':'')+
   nav("Next", !!S.draft.place);
 }
 
 function sSize(){
   return head("How big, roughly?","Rough is fine. If it needs to be bigger to hold up, whoever takes it will tell you.")+
-  '<div class="opts">'+SIZES.map(function(z){
-    return '<button class="opt" aria-pressed="'+(S.draft.size===z[0])+'" onclick="setD(\'size\',\''+esc(z[0])+'\')">'+
+  '<div class="opts" role="group" aria-labelledby="stepq">'+SIZES.map(function(z){
+    return '<button type="button" class="opt" aria-pressed="'+(S.draft.size===z[0])+'" onclick="setD(\'size\',\''+esc(z[0])+'\')">'+
       '<span><span class="ot">'+esc(z[0])+'</span><span class="od">'+esc(z[1])+'</span></span></button>';
   }).join("")+'</div>'+nav("Next", !!S.draft.size);
 }
 
 function sColour(){
   return head("Black and grey, or colour?")+
-  '<div class="ogrid">'+COLOURS.map(function(c){
-    return '<button class="ocell" aria-pressed="'+(S.draft.colour===c[0])+'" onclick="setD(\'colour\',\''+esc(c[0])+'\')">'+
+  '<div class="ogrid" role="group" aria-labelledby="stepq">'+COLOURS.map(function(c){
+    return '<button type="button" class="ocell" aria-pressed="'+(S.draft.colour===c[0])+'" onclick="setD(\'colour\',\''+esc(c[0])+'\')">'+
       '<span class="ot">'+esc(c[0])+'</span>'+(c[1]?'<span class="od">'+esc(c[1])+'</span>':'')+'</button>';
   }).join("")+'</div>'+nav("Next", !!S.draft.colour);
 }
 
 function sBudget(){
   return head("What are you looking to spend?","Not an auction — we price the piece, not the answer you give here. It just means we can tell you straight away if the idea and the number don't line up, instead of three weeks from now.")+
-  '<div class="ogrid">'+BUDGETS.map(function(b){
-    return '<button class="ocell" aria-pressed="'+(S.draft.budget===b[0])+'" onclick="setD(\'budget\',\''+esc(b[0])+'\')">'+
+  '<div class="ogrid" role="group" aria-labelledby="stepq">'+BUDGETS.map(function(b){
+    return '<button type="button" class="ocell" aria-pressed="'+(S.draft.budget===b[0])+'" onclick="setD(\'budget\',\''+esc(b[0])+'\')">'+
       '<span class="ot">'+esc(b[0])+'</span>'+(b[1]?'<span class="od">'+esc(b[1])+'</span>':'')+'</button>';
   }).join("")+'</div>'+
   '<div class="note mt">Studio minimum is $150. Half days start at $600, full days at $1000.</div>'+
@@ -1462,8 +1662,8 @@ function sBudget(){
 
 function sWhen(){
   return head("When can you get in?","We're open Tuesday to Saturday, 10 til 5. Pick whatever days generally work.")+
-  '<div class="ogrid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">'+DAYS.map(function(d){
-    return '<button class="ocell" aria-pressed="'+(S.draft.days.indexOf(d)>=0)+'" onclick="toggleD(\'days\',\''+d+'\')">'+
+  '<div class="ogrid" role="group" aria-labelledby="stepq" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))">'+DAYS.map(function(d){
+    return '<button type="button" class="ocell" aria-pressed="'+(S.draft.days.indexOf(d)>=0)+'" onclick="toggleD(\'days\',\''+d+'\')">'+
       '<span class="ot">'+d+'</span></button>';
   }).join("")+'</div>'+
   '<div class="note mt">Waiting times run anywhere from an hour to six months depending on who you\'re after and how big it is.</div>'+
@@ -1471,28 +1671,47 @@ function sWhen(){
 }
 
 function sYou(){
-  var d=S.draft;
+  var d=S.draft, e=UI.showErr?youErrors():{};
+  function field(key, label, type, attrs, ph){
+    return '<div><label class="lbl" for="you-'+key+'" style="margin-bottom:6px">'+label+'</label>'+
+      '<input id="you-'+key+'" type="'+type+'" '+attrs+' value="'+esc(d[key])+'" placeholder="'+ph+'"'+
+      ' aria-invalid="'+(!!e[key])+'" aria-describedby="err-'+key+'" oninput="S.draft.'+key+'=this.value;saveSoon();liveYou()">'+
+      '<p class="ferr" id="err-'+key+'"'+(e[key]?'':' hidden')+'>'+esc(e[key]||"")+'</p></div>';
+  }
   return head("Who are we talking to?")+
   '<div class="stack">'+
-    '<div><p class="lbl" style="margin-bottom:6px">Name</p><input type="text" value="'+esc(d.name)+'" oninput="S.draft.name=this.value" placeholder="First and last"></div>'+
-    '<div><p class="lbl" style="margin-bottom:6px">Mobile</p><input type="tel" value="'+esc(d.phone)+'" oninput="S.draft.phone=this.value" placeholder="04.."></div>'+
-    '<div><p class="lbl" style="margin-bottom:6px">Email</p><input type="email" value="'+esc(d.email)+'" oninput="S.draft.email=this.value" placeholder="you@..."></div>'+
+    field("name","Name","text",'autocomplete="name" autocapitalize="words" enterkeyhint="next"',"First and last")+
+    field("phone","Mobile","tel",'autocomplete="tel" inputmode="tel" enterkeyhint="next"',"04..")+
+    field("email","Email","email",'autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" enterkeyhint="next"',"you@...")+
   '</div>'+
-  '<div class="mt"><p class="lbl" style="margin-bottom:8px">Easiest way to get hold of you</p>'+
-  '<div class="ogrid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">'+
+  '<div class="mt"><p class="lbl" id="contactlbl" style="margin-bottom:8px">Easiest way to get hold of you</p>'+
+  '<div class="ogrid" role="group" aria-labelledby="contactlbl" aria-describedby="err-contact" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr))">'+
     ["Text","Call","Email"].map(function(c){
-      return '<button class="ocell" aria-pressed="'+(d.contact===c)+'" onclick="setD(\'contact\',\''+c+'\')"><span class="ot">'+c+'</span></button>';
-    }).join("")+'</div></div>'+
+      return '<button type="button" class="ocell" aria-pressed="'+(d.contact===c)+'" onclick="setContact(\''+c+'\')"><span class="ot">'+c+'</span></button>';
+    }).join("")+'</div>'+
+  '<p class="ferr" id="err-contact"'+(e.contact?'':' hidden')+'>'+esc(e.contact||"")+'</p></div>'+
   '<div class="note mt">You need to be 18 or over with valid ID on the day. No exceptions.</div>'+
-  nav("Next", !!(d.name && (d.phone||d.email) && d.contact));
+  nav("Next", stepOk("you"));
 }
+/* keeps Next honest while typing, without re-rendering (no lost focus) */
+window.liveYou = function(){
+  var ok = stepOk("you"), e = UI.showErr ? youErrors() : {};
+  ["name","phone","email","contact"].forEach(function(k){
+    var p=document.getElementById("err-"+k); if(!p) return;
+    p.textContent = e[k]||""; p.hidden = !e[k];
+    var inp=document.getElementById("you-"+k); if(inp) inp.setAttribute("aria-invalid", !!e[k]);
+  });
+  var b=document.querySelector(".fnav .bk");
+  if(b){ if(ok){ b.removeAttribute("aria-disabled"); b.textContent = (S.editFrom==="review"&&firstGap()===STEPS.length-1)?"Back to review":"Next"; } else b.setAttribute("aria-disabled","true"); }
+};
+window.setContact = function(c){ S.draft.contact=c; save(); var keep=UI.showErr; render(); UI.showErr=keep; };
 
 function sReview(){
   var d=S.draft;
-  var who = d.route==="known" && d.artist ? artist(d.artist).name
+  var who = d.route==="known" && artist(d.artist) ? artist(d.artist).name
           : d.route==="help" ? "Whoever suits it — "+(d.styles.join(", ")||"")
           : "Whoever's free first";
-  var rows=[["Tattooist",who,"route"],["What we're doing",d.job,"job"],["The idea",d.idea||"—","idea"],
+  var rows=[["Tattooist",who,d.route==="any"?"route":"artist"],["What we're doing",d.job,"job"],["The idea",d.idea||"—","idea"],
     ["References",d.refs.length? d.refs.length+" image"+(d.refs.length>1?"s":""):"None","refs"],
     ["Photo of the spot",d.spot?"Sent":"Not sent","spot"],
     ["Where",(d.place||"—")+(d.side?" · "+d.side:""),"place"],
@@ -1504,36 +1723,66 @@ function sReview(){
   return head("Have a read before you send it.")+
   '<div class="rev">'+rows.map(function(r){
     return '<dl class="revr"><dt>'+esc(r[0])+'</dt><dd>'+esc(r[1])+'</dd>'+
-      '<button class="ed" onclick="jumpTo(\''+r[2]+'\')">Change</button></dl>';
+      '<button type="button" class="ed" onclick="jumpTo(\''+r[2]+'\')" aria-label="Change '+esc(r[0].toLowerCase())+'">Change</button></dl>';
   }).join("")+'</div>'+
-  (d.refs.length?'<div class="thumbs mt">'+d.refs.map(function(r){return '<div class="thumb"><img src="'+r+'" alt=""></div>';}).join("")+'</div>':'')+
-  '<div class="note mt2"><b>This isn\'t a booking.</b> It\'s a request. Someone has a look, works out how long it needs and offers you times out of their own book. Nothing\'s locked in until you\'ve picked one and left the booking fee.</div>'+
-  '<div class="fnav"><button class="back" onclick="stepBack()">Back</button><span class="sp"></span>'+
-  '<button class="bk" onclick="sendIt()">Send it through</button></div>';
+  (d.refs.length?'<div class="thumbs mt">'+d.refs.map(function(r,i){return '<div class="thumb"><img src="'+r+'" alt="Reference '+(i+1)+'"></div>';}).join("")+'</div>':'')+
+  '<div class="note mt2"><b>Nothing\'s locked in yet.</b> Someone has a look, works out how long it needs and offers you times out of their own book. Your date is held once you\'ve picked one and left the booking fee.</div>'+
+  '<div class="fnav"><button type="button" class="back" onclick="stepBack()">Back</button><span class="sp"></span>'+
+  '<button type="button" class="bk bn" id="sendbtn" onclick="sendIt()"'+(UI.sending?' aria-disabled="true"':'')+'>'+(UI.sending?'Sending…':'Send it through')+'</button></div>';
 }
-window.sendIt = function(){ go("sent"); };
+window.sendIt = function(){
+  if(UI.sending || tooSoon()) return;
+  var gap = firstGap();
+  if(gap < STEPS.length-1){ UI.showErr=true; return navTo("#/book/"+STEPS[gap]); }
+  UI.sending = true; render();
+
+  var d = S.draft;
+  S.seq = S.seq || 4418;
+  var id = "WS-"+(S.seq++);
+  var who = d.route==="known" ? d.artist : null;
+  var nm = d.name.trim().split(/\s+/);
+  var cust = nm[0] + (nm.length>1 ? " "+nm[nm.length-1].charAt(0).toUpperCase()+"." : "");
+  S.reqs.unshift({
+    id:id, cust:cust, artist:who, status:"new", mine:false, unassigned:!who,
+    title: d.job+", "+String(d.place||"").toLowerCase(),
+    idea: d.idea||"", place:d.place, side:d.side, size:d.size, colour:d.colour,
+    budget:d.budget, job:d.job, days:d.days.join(", "), styles:d.styles.slice(),
+    email:(d.email||"").trim(), phone:(d.phone||"").trim(), contact:d.contact,
+    refs:d.refs.slice(), spot:d.spot, hours:0, mins:0, sessions:1, waited:0,
+    thread:[{who:nm[0], t:"Sent through the form", sys:true}]
+  });
+  S.lastSent = { id:id, artist:who, route:d.route };
+  S.draft = SEED().draft; S.step = 0; S.editFrom = null;
+  save();
+  finishFlow("#/sent/"+id);
+};
 
 function vSent(){
-  var d=S.draft;
-  return '<nav class="snav"><div class="snav-in"><button class="logofall" onclick="go(\'site\')">Westside</button></div></nav>'+
+  var L = S.lastSent || {}, a = artist(L.artist), first = a ? a.name.split(" ")[0] : "";
+  return '<nav class="snav"><div class="snav-in"><a class="logofall" href="#/">Westside</a></div></nav>'+
    '<div class="wrap big-ok">'+
-    '<h1>Got it.</h1>'+
+    '<h1 tabindex="-1">Got it.</h1>'+
     '<p class="fhelp mt" style="font-size:18px">'+
-      (d.route==="known"&&d.artist ? esc(artist(d.artist).name.split(" ")[0])+"'ll have a look and get back to you."
-       : "One of us will have a look and get back to you.")+
+      (a ? esc(first)+"'ll have a look and get back to you."
+         : "One of us will have a look and get back to you.")+
       ' If it\'s not right for them we\'ll put it in front of someone here who it does suit — you won\'t have to send it again.</p>'+
     '<div class="ticketrow">'+
-      '<div><dt>Reference</dt><dd class="mono">WS-4418</dd></div>'+
+      '<div><dt>Reference</dt><dd class="mono">'+esc(L.id)+'</dd></div>'+
       '<div><dt>Sent</dt><dd>Just now</dd></div>'+
       '<div><dt>Back to you</dt><dd>'+nc("Usually a couple of days","response time the studio can hold")+'</dd></div>'+
       '<div><dt>Still to come</dt><dd>Times to pick from, then the booking fee. It\'s not booked until both are done.</dd></div>'+
     '</div>'+
     '<div class="mt2 stack" style="grid-template-columns:auto auto;display:flex;gap:10px;flex-wrap:wrap">'+
-      '<button class="bk" onclick="go(\'signin\')">See what lands on Bob\'s screen</button>'+
-      '<button class="bk gh" onclick="go(\'site\')">Back to the site</button>'+
+      (a ? '<button type="button" class="bk" onclick="seeSent()">See what lands on '+esc(first)+'\'s screen</button>'
+         : '<button type="button" class="bk" onclick="go(\'counter\')">See it land at the counter</button>')+
+      '<a class="bk gh" href="#/">Back to the site</a>'+
     '</div>'+
    '</div>';
 }
+window.seeSent = function(){
+  var L = S.lastSent || {}; if(!L.artist) return go("counter");
+  S.me = L.artist; S.who = "artist"; S.openReq = L.id; go("req");
+};
 </script>
 
 <script>
@@ -1717,7 +1966,7 @@ window.passOn = function(id){
   var to=others[0];
   r.artist=to.id; r.mine=false; r.status="new";
   r.thread=r.thread||[];
-  r.thread.push({who:"Westside", sys:true, note:"Sent to "+to.name+" — more his thing. Client not told to start again."});
+  r.thread.push({who:"Westside", sys:true, note:"Sent to "+to.name+" — more "+to.name.split(" ")[0]+"'s thing. Client not told to start again."});
   save(); go("desk");
 };
 window.notMine = function(id){
@@ -1884,28 +2133,36 @@ function vPick(){
   var r=reqById(S.openReq)||S.reqs[0];
   var a=artist(r.artist)||artist("bob");
   var offers=r.offers||OFFERS.slice(0,3);
-  return '<nav class="snav"><div class="snav-in"><button class="logofall" onclick="go(\'site\')">Westside</button>'+
+  if(r.status==="booked"){
+    return '<nav class="snav"><div class="snav-in"><a class="logofall" href="#/">Westside</a></div></nav>'+
+      '<div class="wrap" style="max-width:760px;padding-block:clamp(34px,6vw,70px)">'+
+      '<h1 class="fq">You\'re already in.</h1>'+
+      '<p class="fhelp">'+esc(r.slot||"")+' with '+esc(a.name)+'. The booking fee\'s paid.</p>'+
+      '<div class="fnav"><span class="sp"></span><a class="bk" href="#/confirmed/'+esc(r.id)+'">See the booking</a></div></div>';
+  }
+  return '<nav class="snav"><div class="snav-in"><a class="logofall" href="#/">Westside</a>'+
     '<div class="links"><span class="lbl">'+esc(r.id)+'</span></div></div></nav>'+
     '<div class="wrap" style="max-width:760px;padding-block:clamp(34px,6vw,70px)">'+
     '<h1 class="fq">'+esc(a.name.split(" ")[0])+'\'s in.</h1>'+
-    '<p class="fhelp">He\'s put '+(r.hours||4)+' hours on it'+((r.sessions||1)>1?', across a few sittings':'')+
+    '<p class="fhelp">'+esc(a.name.split(" ")[0])+'\'s put '+(r.hours||4)+' hours on it'+((r.sessions||1)>1?', across a few sittings':'')+
     '. Pick a time that works and we\'ll hold it.</p>'+
     '<div class="msg them" style="max-width:100%;margin-bottom:22px"><div class="mw">'+esc(a.name.split(" ")[0])+'</div>'+
       esc(((r.thread||[]).slice(-1)[0]||{}).t || "")+'</div>'+
     '<div class="slots">'+offers.map(function(o,i){
-      return '<button class="slot" aria-pressed="'+(S.pickSlot===i)+'" onclick="S.pickSlot='+i+';save();render()">'+
+      return '<button type="button" class="slot" aria-pressed="'+(S.pickSlot===i)+'" onclick="S.pickSlot='+i+';save();render()">'+
         '<span class="sd">'+esc(o.d)+'</span><span class="sh">'+esc(o.t)+' · '+(r.hours||4)+' hrs</span></button>';
     }).join("")+'</div>'+
     '<div class="note mt">Booking fee is $100 and comes off the tattoo'+((r.sessions||1)>1?", held until the last sitting":"")+
     '. Nothing\'s held until it\'s paid.</div>'+
-    '<div class="fnav"><span class="sp"></span><button class="bk" onclick="go(\'pay\')" '+
-      (S.pickSlot!=null?'':'disabled style="opacity:.35;cursor:not-allowed"')+'>Take this one</button></div>'+
+    '<div class="fnav"><span class="sp"></span><button type="button" class="bk" onclick="if(S.pickSlot!=null)go(\'pay\')" '+
+      (S.pickSlot!=null?'':'aria-disabled="true"')+'>Take this one</button></div>'+
+    (S.pickSlot==null?'<p class="ferr" style="text-align:right">Pick a time first.</p>':'')+
     '</div>';
 }
 function vPay(){
   var r=reqById(S.openReq)||S.reqs[0];
   var o=(r.offers||OFFERS)[S.pickSlot||0];
-  return '<nav class="snav"><div class="snav-in"><button class="logofall" onclick="go(\'site\')">Westside</button></div></nav>'+
+  return '<nav class="snav"><div class="snav-in"><a class="logofall" href="#/">Westside</a></div></nav>'+
     '<div class="wrap" style="max-width:560px;padding-block:clamp(34px,6vw,70px)">'+
     '<h1 class="fq">Booking fee</h1>'+
     '<p class="fhelp">$100. Comes off the tattoo. We\'ll hold '+esc(o.d)+' once it\'s through.</p>'+
@@ -1928,17 +2185,18 @@ function vPay(){
 }
 window.payIt=function(){
   var r=reqById(S.openReq)||S.reqs[0];
+  if(r.status==="booked" || tooSoon()) return navTo("#/confirmed/"+r.id,{replace:true});
   var o=(r.offers||OFFERS)[S.pickSlot||0];
   r.status="booked"; r.slot=o.d+", "+o.t; r.waited=0;
   r.thread=r.thread||[];
   r.thread.push({who:r.cust.split(" ")[0], t:"Taken "+o.d+". Fee's paid."});
   r.thread.push({who:"Westside", sys:true, note:"Booked · "+o.d+" "+o.t+" · fee received · in "+(artist(r.artist)||{name:"the"}).name.split(" ")[0]+"'s book"});
-  save(); go("confirmed");
+  save(); navTo("#/confirmed/"+r.id,{replace:true});
 };
 function vConfirmed(){
   var r=reqById(S.openReq)||S.reqs[0];
   var a=artist(r.artist)||artist("bob");
-  return '<nav class="snav"><div class="snav-in"><button class="logofall" onclick="go(\'site\')">Westside</button></div></nav>'+
+  return '<nav class="snav"><div class="snav-in"><a class="logofall" href="#/">Westside</a></div></nav>'+
     '<div class="wrap big-ok stuck" style="max-width:760px">'+
     stk("betty","stick stick-win")+
     '<h1>You\'re in.</h1>'+
@@ -2024,7 +2282,7 @@ function vCounter(){
              ["fee","Fee owing"],["booked","Booked"],["passed","Closed"]];
 
   return '<div class="bk-top"><div class="bk-top-in">'+
-      '<button class="logofall" style="font-size:15px" onclick="go(\'site\')">Westside</button>'+
+      '<a class="logofall" style="font-size:15px" href="#/">Westside</a>'+
       '<span class="lbl">The Counter</span>'+
       '<div class="who"><button class="skip" onclick="go(\'signin\')">The Book</button></div>'+
     '</div></div>'+
@@ -2078,8 +2336,207 @@ window.peek=function(id){ var r=reqById(id); if(r.artist) S.me=r.artist; S.openR
 </script>
 
 <script>
-/* ============================ ROUTER ============================ */
-function render(){
+/* ============================ ROUTER ============================
+   Every screen has its own URL (hash routes, so it works under
+   /westside-tattoo/ on GitHub Pages, on a custom domain, or opened
+   from disk). Each move is a real history entry, so the browser's
+   Back / Forward and the phone's swipe-back walk through the site
+   the way a visitor expects.
+
+     #/                      home          #/book/<step>   booking step
+     #/artists #/faq #/find  home, section #/book?artist=  booking, artist preset
+     #/artist/<id>           tattooist     #/sent/<ref>    confirmation
+     #/signin #/desk #/cal #/done #/payouts #/counter      artist + studio side
+     #/req|approve|move|offered|pick|pay|confirmed/<ref>
+================================================================== */
+var ROUTE_VIEWS = { "":"site2", artists:"site2", faq:"site2", find:"site2",
+  artist:"artist", book:"book", sent:"sent", signin:"signin", desk:"desk",
+  req:"req", approve:"approve", offered:"offered", pick:"pick", pay:"pay",
+  confirmed:"confirmed", cal:"cal", done:"done", payouts:"payouts",
+  move:"move", counter:"counter" };
+var WITH_REQ = { req:1, approve:1, move:1, offered:1, pick:1, pay:1, confirmed:1 };
+var SECTIONS = { artists:1, faq:1, find:1 };
+var NAV = { hash:null, pending:null };
+
+function parseHash(h){
+  h = String(h||"").replace(/^#/, "");
+  var q = "", i = h.indexOf("?");
+  if(i>=0){ q = h.slice(i+1); h = h.slice(0,i); }
+  var parts = h.split("/").filter(Boolean).map(function(x){ try{ return decodeURIComponent(x); }catch(e){ return x; } });
+  var params = {};
+  q.split("&").forEach(function(kv){
+    if(!kv) return; var p = kv.split("=");
+    try{ params[decodeURIComponent(p[0])] = decodeURIComponent(p.slice(1).join("=")); }catch(e){}
+  });
+  return { parts:parts, params:params };
+}
+function viewOf(hash){ return ROUTE_VIEWS[parseHash(hash).parts[0]||""]; }
+function hashFor(v){
+  if(v==="site"||v==="site2") return "#/";
+  if(v==="artist") return "#/artist/"+encodeURIComponent(S.artistId||"zarra");
+  if(v==="book")   return "#/book/"+(STEPS[S.step]||"route");
+  if(v==="sent")   return "#/sent/"+encodeURIComponent((S.lastSent||{}).id||"");
+  if(WITH_REQ[v])  return "#/"+v+"/"+encodeURIComponent(S.openReq||"");
+  return ROUTE_VIEWS[v] ? "#/"+v : "#/";
+}
+function st(){ return history.state || {}; }
+
+/* Resolve a booking URL to the step it should really show.
+   Applies ?artist= once (then drops it from the URL, so a later change of
+   artist isn't overwritten on refresh) and never lets anyone land past the
+   first unanswered required question. */
+function resolveBook(hash){
+  var r = parseHash(hash);
+  if((r.parts[0]||"") !== "book") return hash;
+  if(r.params.artist != null){
+    var a = artist(r.params.artist);
+    S.draft.route = "known"; UI.handoffClosed = null;
+    if(a && !isClosed(a)){ S.draft.artist = a.id; save(); return "#/book/job"; }
+    S.draft.artist = null; UI.handoffClosed = a ? a.id : null; save();
+    return "#/book/artist";
+  }
+  var key = r.parts[1];
+  if(!key) key = hasAnswers() ? (STEPS[S.step]||"route") : "route";
+  var idx = STEPS.indexOf(key); if(idx<0) idx = 0;
+  var gap = firstGap(); if(idx > gap) idx = gap;
+  return "#/book/"+STEPS[idx];
+}
+
+function navTo(hash, opt){
+  opt = opt || {};
+  hash = resolveBook(hash);
+  var cur = st(), toBook = viewOf(hash)==="book";
+  if(!opt.replace && hash === location.hash && !cur.ov){
+    applyRoute({ scroll:"fresh" });                      /* same screen: no duplicate entry */
+    return;
+  }
+  if(opt.replace){
+    history.replaceState({ n:cur.n||0, prev:cur.prev||null,
+      bs: toBook ? (cur.bs!=null ? cur.bs : (cur.n||0)) : null }, "", hash);
+  } else {
+    try{ history.replaceState(Object.assign({}, cur, { y:window.pageYOffset }), "", location.href); }catch(e){}
+    var n = (cur.n||0) + 1;
+    history.pushState({ n:n, prev:location.hash || "#/",
+      bs: toBook ? ((viewOf(location.hash)==="book" && cur.bs!=null) ? cur.bs : n) : null }, "", hash);
+  }
+  UI.lastNav = Date.now();
+  applyRoute({ scroll:"fresh" });
+}
+/* In-page "Back": if the previous history entry IS the target, really go
+   back (so the forward stack stays intact); otherwise swap this entry. */
+function backTo(hash){
+  if(st().prev === hash){ UI.lastNav = Date.now(); history.back(); }
+  else navTo(hash, { replace:true });
+}
+function pushOverlay(extra){
+  var cur = st();
+  try{ history.replaceState(Object.assign({}, cur, { y:window.pageYOffset }), "", location.href); }catch(e){}
+  history.pushState(Object.assign({ n:(cur.n||0)+1, prev:location.hash||"#/", bs:cur.bs }, extra), "", location.href);
+}
+/* After sending: rewind past the booking steps so Back from the
+   confirmation goes to where the visitor started, not into a spent form. */
+function finishFlow(target){
+  var cur = st(), bs = cur.bs, n = cur.n||0;
+  if(bs == null || n - bs < 0) return navTo(target, { replace:true });
+  var steps = bs > 0 ? n - bs + 1 : n - bs;
+  var land = function(){ NAV.pending = null; if(bs > 0) navTo(target); else navTo(target, { replace:true }); };
+  if(steps <= 0) return land();
+  NAV.pending = { fn:land, t:setTimeout(function(){ if(NAV.pending) land(); }, 1500) };
+  history.go(-steps);
+}
+
+function onHistory(){
+  if(NAV.pending){ var p = NAV.pending; clearTimeout(p.t); p.fn(); return; }
+  var cur = history.state;
+  if(location.hash === NAV.hash){                       /* same page: overlay open/close */
+    if(cur && cur.ov === "lb" && !OV.open) zoomWork(cur.i, true);
+    else if(!(cur && cur.ov) && OV.open) hideOverlay();
+    return;
+  }
+  if(!cur || typeof cur.n !== "number"){                /* typed URL or plain #link */
+    var n = (NAV.n||0) + 1, b = viewOf(location.hash)==="book";
+    history.replaceState({ n:n, prev:NAV.hash||"#/",
+      bs: b ? ((viewOf(NAV.hash||"")==="book" && NAV.bs!=null) ? NAV.bs : n) : null }, "", location.href);
+  }
+  applyRoute({ scroll:"restore" });
+}
+window.addEventListener("popstate", onHistory);
+window.addEventListener("hashchange", function(){ if(location.hash !== NAV.hash || NAV.pending) onHistory(); });
+
+function applyRoute(o, depth){
+  o = o || {}; depth = depth || 0;
+  function redirect(h){
+    var c = st();
+    history.replaceState({ n:c.n||0, prev:c.prev||null, y:c.y,
+      bs: viewOf(h)==="book" ? (c.bs!=null ? c.bs : (c.n||0)) : null }, "", h);
+    return depth < 4 ? applyRoute(o, depth+1) : null;
+  }
+  var r = parseHash(location.hash), seg = r.parts[0] || "", view = ROUTE_VIEWS[seg];
+  UI.showErr = false; UI.upErr = null; UI.busy = null; UI.sending = false;
+  if(!view) return redirect("#/");
+
+  if(view === "artist"){
+    if(!artist(r.parts[1])) return redirect("#/artists");
+    S.artistId = r.parts[1];
+  }
+  if(view === "book"){
+    var fixed = resolveBook(location.hash);
+    if(fixed !== location.hash) return redirect(fixed);
+    S.step = STEPS.indexOf(r.parts[1]);
+    if(r.parts[1] === "review") S.editFrom = null;
+  } else {
+    S.editFrom = null; UI.handoffClosed = null;
+  }
+  if(WITH_REQ[view]){
+    if(!reqById(r.parts[1])) return redirect(view==="pick"||view==="pay"||view==="confirmed" ? "#/" : "#/desk");
+    S.openReq = r.parts[1];
+    var rq = reqById(S.openReq);
+    if(view === "pay" && (S.pickSlot == null || rq.status === "booked")) return redirect("#/pick/"+S.openReq);
+    if(view === "confirmed" && rq.status !== "booked") return redirect("#/pick/"+S.openReq);
+  }
+  if(view === "sent" && !(S.lastSent && S.lastSent.id === r.parts[1])) return redirect("#/");
+
+  S.view = view;
+  var c = st();
+  NAV.hash = location.hash; NAV.n = c.n || 0; NAV.bs = c.bs;
+  save();
+  render({ route:true, focus: o.scroll !== "boot" });
+
+  if(o.scroll === "restore" && typeof c.y === "number") restoreScroll(c.y);
+  else if(SECTIONS[seg]) scrollToSection(seg);
+  else window.scrollTo(0, 0);
+  if(c.ov === "lb" && view === "artist") zoomWork(c.i, true);
+}
+function restoreScroll(y){
+  window.scrollTo(0, y);
+  requestAnimationFrame(function(){ window.scrollTo(0, y); });
+  setTimeout(function(){ if(Math.abs(window.pageYOffset - y) > 2) window.scrollTo(0, y); }, 120);
+}
+function scrollToSection(id){
+  var go2 = function(){
+    var el = document.getElementById(id); if(!el) return;
+    var bar = document.querySelector(".snav");
+    var top = el.getBoundingClientRect().top + window.pageYOffset - (bar ? bar.offsetHeight : 0);
+    window.scrollTo(0, Math.max(0, top));
+  };
+  go2(); requestAnimationFrame(go2); setTimeout(go2, 150);
+}
+
+/* ---------- rendering ---------- */
+var OVERLAY_MARKUP = '<div id="drawer" class="drawer" role="dialog" aria-modal="true" hidden></div>'+
+                     '<div id="scrim" class="scrim" hidden onclick="closeArtist()"></div>';
+function focusables(root){
+  return [].slice.call((root||document).querySelectorAll(
+    'a[href],button:not([disabled]),input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])'));
+}
+function render(opt){
+  opt = opt || {};
+  var app = document.getElementById("app");
+  var ae = document.activeElement, keepId = null, keepIdx = -1;
+  if(!opt.route && ae && ae !== document.body && app.contains(ae)){
+    keepId = ae.id || null; keepIdx = focusables(app).indexOf(ae);
+  }
+  var hadFocus = ae && ae !== document.body && app.contains(ae);
   var v=S.view;
   var html =
     v==="site"? vSite2() :
@@ -2100,7 +2557,20 @@ function render(){
     v==="payouts"? vPayouts() :
     v==="move"? vMove() :
     v==="counter"? vCounter() : vSite2();
-  document.getElementById("app").innerHTML = html;
+  app.innerHTML = html + OVERLAY_MARKUP;
+  /* a menu/overlay can never leave the page scroll-locked */
+  document.body.style.overflow = ""; OV.open = null;
+
+  if(opt.route){
+    if(opt.focus && hadFocus){
+      var h = app.querySelector("h1");
+      if(h){ if(!h.hasAttribute("tabindex")) h.setAttribute("tabindex","-1"); try{ h.focus({preventScroll:true}); }catch(e){} }
+    }
+  } else if(keepId || keepIdx >= 0){
+    var el = keepId && document.getElementById(keepId);
+    if(!el){ var list = focusables(app); el = list[Math.min(keepIdx, list.length-1)]; }
+    if(el) try{ el.focus({preventScroll:true}); }catch(e){}
+  }
 
   [].forEach.call(document.querySelectorAll("#demobar .dbtn[data-go]"), function(b){
     var g=b.getAttribute("data-go");
@@ -2111,22 +2581,89 @@ function render(){
     b.classList.toggle("on", !!on);
   });
 }
+
+/* ---------- global listeners ---------- */
 document.addEventListener("click", function(e){
-  var b=e.target.closest("#demobar .dbtn[data-go]"); if(!b) return;
-  var g=b.getAttribute("data-go");
-  if(g==="book-zarra"){ S.me="zarra"; S.who="artist"; go("desk"); }
-  else if(g==="book"){ S.step=0; go("book"); }
-  else go(g);
+  var b=e.target.closest("#demobar .dbtn[data-go]");
+  if(b){
+    var g=b.getAttribute("data-go");
+    if(g==="book-zarra"){ S.me="zarra"; S.who="artist"; go("desk"); }
+    else if(g==="book"){ navTo("#/book/route"); }
+    else go(g);
+    return;
+  }
+  /* internal #/ links go through the router (keeps history state tidy);
+     modified clicks (new tab etc.) are left to the browser */
+  var a = e.target.closest('a[href^="#"]');
+  if(!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  var href = a.getAttribute("href");
+  if(href === "#" || a.target) return;
+  e.preventDefault();
+  navTo(href.charAt(1) === "/" ? href : "#/" + href.slice(1));
 });
+document.addEventListener("keydown", function(e){
+  if(OV.open){
+    if(e.key === "Escape"){ e.preventDefault(); closeArtist(); return; }
+    if(e.key === "Tab"){
+      var d = document.getElementById("drawer"), f = focusables(d);
+      if(!f.length) return;
+      var i = f.indexOf(document.activeElement);
+      if(e.shiftKey && i <= 0){ e.preventDefault(); f[f.length-1].focus(); }
+      else if(!e.shiftKey && (i === f.length-1 || i < 0)){ e.preventDefault(); f[0].focus(); }
+    }
+    return;
+  }
+  /* Enter in a booking text field = Next (no <form>, so do it by hand) */
+  if(e.key === "Enter" && S.view === "book" && e.target.matches && e.target.matches(".fstep input")){
+    e.preventDefault();
+    if(e.target.id === "you-name")  { var p=document.getElementById("you-phone"); if(p) return p.focus(); }
+    if(e.target.id === "you-phone") { var m=document.getElementById("you-email"); if(m) return m.focus(); }
+    stepNext();
+  }
+});
+/* drag-and-drop onto the upload boxes (the label says you can) */
+function dropZone(e){ return e.target.closest && e.target.closest("[data-drop]"); }
+["dragenter","dragover"].forEach(function(t){
+  document.addEventListener(t, function(e){
+    var z = dropZone(e); if(!z) return;
+    e.preventDefault(); z.classList.add("over");
+  });
+});
+document.addEventListener("dragleave", function(e){ var z=dropZone(e); if(z && !z.contains(e.relatedTarget)) z.classList.remove("over"); });
+document.addEventListener("drop", function(e){
+  var z = dropZone(e); if(!z) return;
+  e.preventDefault(); z.classList.remove("over");
+  var files = e.dataTransfer && e.dataTransfer.files;
+  if(!files || !files.length) return;
+  if(z.getAttribute("data-drop") === "refs") addRefs(files); else addSpot(files);
+});
+/* dropping a file anywhere else must not navigate away from the form */
+window.addEventListener("dragover", function(e){ if(S.view==="book") e.preventDefault(); });
+window.addEventListener("drop", function(e){ if(S.view==="book") e.preventDefault(); });
+window.addEventListener("pagehide", save);
+
 document.getElementById("flagbtn").addEventListener("click", function(){
   document.body.classList.toggle("showflags");
   this.classList.toggle("on", document.body.classList.contains("showflags"));
 });
 document.getElementById("resetbtn").addEventListener("click", function(){
   S=JSON.parse(JSON.stringify(SEED())); S.offerPick=[]; S.pickSlot=null;
-  S.approveHrs=4; S.approveMulti=false; S.counterFilter="all"; save(); render(); window.scrollTo(0,0);
+  S.approveHrs=4; S.approveMulti=false; S.counterFilter="all"; save(); navTo("#/");
 });
-render();
+
+/* ---------- boot ---------- */
+(function(){
+  if("scrollRestoration" in history) history.scrollRestoration = "manual";
+  var c = history.state;
+  if(!c || typeof c.n !== "number"){
+    history.replaceState({ n:0, prev:null, bs: viewOf(location.hash)==="book" ? 0 : null }, "", location.href);
+  } else if(c.ov){
+    /* reloaded with the lightbox open: show the page, not a stale overlay */
+    var clean = Object.assign({}, c); delete clean.ov; delete clean.i;
+    history.replaceState(clean, "", location.href);
+  }
+  applyRoute({ scroll:"restore" });
+})();
 </script>
 </body>
 </html>

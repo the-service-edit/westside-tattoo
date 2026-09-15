@@ -8,12 +8,12 @@ Built by The Service Edit.
 A single-page build containing both sides of one enquiry:
 
 - **Customer site** — homepage, the tattooists, FAQ (their own words), find us
-- **Booking request** — 13 steps, three ways in, image upload, review, submit
+- **Book now** — 13 steps, three ways in, image upload, review, submit
 - **The Book** — what the artist sees: requests, request detail, approve, ask,
   hand over, their own calendar, offering times, payouts
 - **The Counter** — studio pipeline view, assignment, waiting times
 
-Everything is reachable by using the site. Start a request, submit it, then
+Everything is reachable by using the site. Hit Book now, send it through, then
 follow "see what lands on Bob's screen".
 
 ## Status
@@ -55,3 +55,17 @@ assets folder, and it renders complete.
 The same images are also kept as real files in `assets/` so they can be
 swapped, re-cropped or reused. If you move to separate files later, point
 `HERO_SHOT` and `STICKERS` in `index.html` at those paths instead.
+
+## Routing
+
+Every screen has its own URL (hash routes, so it works under `/westside-tattoo/`
+on GitHub Pages and when opened from disk). Browser Back/Forward, refresh and
+direct links all work:
+
+    #/                     home            #/book/<step>       a booking step
+    #/artists #/faq #/find home, section   #/book?artist=zarra booking, artist preset
+    #/artist/<id>          tattooist       #/sent/<ref>        confirmation
+
+Booking answers are kept in sessionStorage (`ws-site-v2`) so a refresh mid-form
+keeps them; photos are downscaled to 1600px before storing. Nothing is sent to a
+server yet — see "Status".
